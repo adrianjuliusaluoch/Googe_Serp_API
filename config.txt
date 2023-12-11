@@ -1,0 +1,69 @@
+### Create an Open MySQL DataBase Connection
+db=mysql.connector.connect(user='data_miner',database='data_miner',password='data_mining')
+cursor=db.cursor()
+
+### Specify the Locations and Loop Variables
+countries=['South Africa','Egypt','Uganda','Nigeria','Kenya']
+jobs=[]
+start=0
+end=200
+page_size=10
+total_size=[]
+
+### Configure API, Retrieve and Load Data into you Local Machine's DataBase[MySQL]
+for country in countries:
+    try:
+        for index in range(start,end,page_size):
+            params = {
+            "engine": "google_jobs",
+            "q": "Data Analyst",
+            "start": index,
+            "location": country,
+            "hl": "en",
+            "api_key": "5f2144edaebf008ed7b63d54e67b643fb234db105f28fd0409a29d67d0ce61aa"
+            }
+            
+            search = GoogleSearch(params)
+            results = search.get_dict()
+            jobs_results = results["jobs_results"]
+            jobs.append(jobs_results)
+            
+    except KeyError:
+        print(f'End of Page, ====> {country}')
+        
+### Loading Results to Local DataBase[MySQL]
+for index,content in enumerate(jobs):
+    jobs[index]=pd.DataFrame(content)
+    jobs[index].to_csv('data.csv',index=False)
+    data=pd.read_csv('data.csv')
+    data['date_time']=datetime.datetime.now()
+    data=data[['title','company_name','via','location','description','extensions','detected_extensions','date_time']]
+    total_size.append(data.shape[0])
+    for number in data.iterrows():
+        input=(
+                'insert into data_science_jobs_in_africa'
+                '(title,company_name,via,location,description,extensions,detected_extensions,date_time)'
+                'values(%s,%s,%s,%s,%s,%s,%s,%s)')
+        values=tuple(number[1])
+        cursor.execute(input,values)
+        db.commit()
+    os.remove('data.csv')
+
+### Close MySQL Open DataBase Connection
+cursor.close()
+db.close()
+print(f'\nData Transaction to DataBase[MySQL]\nShape of Collected Dataset\nRows : {sum(total_size)}\nColumns : {data.shape[1]}\n')
+
+### Create MySQL Engine using SQLAlchemy
+mysql_engine=create_engine('mysql://data_miner:data_mining@localhost:3306/data_miner')
+results=pd.read_sql('data_science_jobs_in_africa',mysql_engine)
+print(f'Original Shape of Dataset in the MySQL DataBase\nRows : {results.shape[0]}\nColumns : {results.shape[1]}')
+
+### Check and Remove Duplicate Records
+dups=results.duplicated(subset=['title','company_name','via','location','description','extensions','detected_extensions']).sum()
+results.drop_duplicates(subset=['title','company_name','via','location','description','extensions','detected_extensions'],inplace=True)
+
+### Save Results to MySQL DataBase
+results.reset_index(drop=True,inplace=True)
+results.to_sql('data_science_jobs_in_africa',mysql_engine,if_exists='replace',index=False)
+print(f'Final Shape of Dataset in the MySQL DataBase after Dropping Duplicates\nRows : {results.shape[0]}\nColumns : {results.shape[1]}')
